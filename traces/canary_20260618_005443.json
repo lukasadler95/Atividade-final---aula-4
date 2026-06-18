@@ -1,0 +1,11 @@
+[
+  {
+    "timestamp": "2026-06-18T00:54:44.708225",
+    "cpu_pct": 95,
+    "memory_pct": 91,
+    "latency_ms": 3500,
+    "error_rate_pct": 18,
+    "percentual_trafego": 10,
+    "fase_aprovada": false
+  }
+]
