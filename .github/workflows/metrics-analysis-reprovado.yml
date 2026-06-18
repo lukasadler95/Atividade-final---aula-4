@@ -1,0 +1,70 @@
+name: IA analisando métricas - reprovado pela IA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+
+  analisar-metricas:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Clonar repositório
+        uses: actions/checkout@v4
+
+      - name: Login GitHub CLI
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+
+      - name: IA analisa métricas - reprovado pela IA
+        env:
+          GROQCLOUD_API_KEY: ${{ secrets.GROQCLOUD_API_KEY }}
+
+        run: |
+
+          echo "Lendo métricas..."
+
+          METRICS=$(cat metrics/system-reprovado.json | jq -c . | sed 's/"/\\"/g')
+
+          RESPONSE=$(curl -s https://api.groq.com/openai/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $GROQCLOUD_API_KEY" \
+            -d "{
+              \"model\": \"llama-3.1-8b-instant\",
+              \"messages\": [
+                {
+                  \"role\": \"system\",
+                  \"content\": \"Você é um classificador binário. Responda APENAS 'APROVADO' ou 'REPROVADO'.\\nThresholds críticos:\\n- CPU >= 80% → REPROVADO\\n- Memory >= 85% → REPROVADO\\n- Latency >= 2000ms → REPROVADO\\n- Error Rate >= 5% → REPROVADO\\nExemplos:\\n{\\\"cpu\\\":15,\\\"memory\\\":30,\\\"latency_ms\\\":50,\\\"error_rate\\\":0.05} → APROVADO\\n{\\\"cpu\\\":90,\\\"memory\\\":50,\\\"latency_ms\\\":100,\\\"error_rate\\\":1} → REPROVADO\\nResponda APENAS a classificação, nada mais.\"
+                },
+                {
+                  \"role\": \"user\",
+                  \"content\": \"$METRICS\"
+                }
+              ]
+            }")
+
+          echo "$RESPONSE"
+
+          DECISION=$(echo "$RESPONSE" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['choices'][0]['message']['content'])")
+
+          echo "$DECISION"
+
+          if echo "$DECISION" | grep -qiE "REPROVADO"; then
+
+            ISSUE_URL=$(gh issue create \
+              --title "Métricas reprovadas - ação necessária" \
+              --body "$DECISION")
+
+            echo "$ISSUE_URL"
+
+            exit 1
+
+          fi
+          
+          echo "✅ Métricas aprovadas! Pipeline prosseguindo..."
+          exit 0

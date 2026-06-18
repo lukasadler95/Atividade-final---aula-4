@@ -1,0 +1,107 @@
+# Nome do workflow exibido no GitHub Actions
+name: Quality Gate com IA
+
+# Define execução manual
+on:
+  workflow_dispatch:
+
+# Lista de jobs do workflow
+jobs:
+
+  # Nome interno do job
+  quality-gate-ia:
+
+    # Máquina virtual Linux usada pela pipeline
+    runs-on: ubuntu-latest
+
+    # Passos do pipeline
+    steps:
+
+      # Clona o repositório para dentro da máquina virtual
+      - name: Clonar repositório
+        uses: actions/checkout@v4
+
+      # Configura o Python
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Instala bibliotecas necessárias
+      - name: Instalar dependências
+        run: |
+
+          # Framework de testes
+          pip install pytest pytest-cov
+
+      # Executa testes e coleta cobertura
+      - name: Coletar métricas
+
+        # Variáveis de ambiente
+        env:
+          PYTHONPATH: .
+
+        run: |
+
+          # Executa testes com cobertura
+          # O "|| true" impede que o pipeline pare imediatamente
+          pytest tests_baixa --cov=src_baixa --cov-report=json -q || true
+
+          # Lê o arquivo coverage.json
+          # Extrai a porcentagem total de cobertura
+          COV=$(python -c "import json; d=json.load(open('coverage.json')); print(round(d['totals']['percent_covered']))")
+
+          # Salva variável de ambiente para próximos steps
+          echo "COVERAGE=$COV" >> $GITHUB_ENV
+
+      # Consulta IA real usando API da OpenAI
+      - name: Consultar IA — Quality Gate
+
+        # Variáveis protegidas do GitHub Secrets
+        env:
+
+          # Chave da OpenAI
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+        run: |
+
+          echo "Consultando IA sobre qualidade do código..."
+
+          # Faz requisição HTTP para API da OpenAI
+          RESPONSE=$(curl -s https://api.openai.com/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -d '{
+              "model": "gpt-4o-mini",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "Você é um quality gate de pipeline CI/CD. Responda apenas APROVADO ou BLOQUEADO seguido de uma justificativa curta."
+                },
+                {
+                  "role": "user",
+                  "content": "Cobertura de testes: '"$COVERAGE"'%. Projeto Python com possível divisão por zero não testada. Deve avançar para produção?"
+                }
+              ]
+            }')
+
+          # Exibe resposta da API
+          echo "Resposta da IA:"
+          echo "$RESPONSE"
+
+          # Extrai apenas o texto da resposta da IA
+          DECISION=$(echo "$RESPONSE" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['choices'][0]['message']['content'])")
+
+          # Mostra decisão final
+          echo "$DECISION"
+
+          # Se a IA responder BLOQUEADO
+          if echo "$DECISION" | grep -q "BLOQUEADO"; then
+
+            # Cria erro visível no GitHub Actions
+            echo "::error::Quality Gate BLOQUEADO pela IA"
+
+            # Falha pipeline
+            exit 1
+
+          fi

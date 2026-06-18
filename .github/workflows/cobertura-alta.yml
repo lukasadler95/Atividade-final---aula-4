@@ -1,0 +1,95 @@
+# Nome do workflow que aparecerá no GitHub Actions
+name: Cobertura Alta
+
+# Define quando o workflow será executado
+on:
+
+  # Permite executar manualmente pelo botão "Run workflow"
+  workflow_dispatch:
+
+# Define os jobs (tarefas) do pipeline
+jobs:
+
+  # Nome interno do job
+  cobertura-alta:
+
+    # Máquina virtual utilizada pelo GitHub Actions
+    runs-on: ubuntu-latest
+
+    # Passos executados dentro do job
+    steps:
+
+      # Primeiro passo: baixar/clonar o repositório
+      - name: Clonar repositório
+
+        # Action oficial do GitHub para checkout do código
+        uses: actions/checkout@v4
+
+      # Segundo passo: configurar ambiente Python
+      - name: Configurar Python
+
+        # Action oficial para instalar/configurar Python
+        uses: actions/setup-python@v5
+
+        # Parâmetros da action
+        with:
+
+          # Define a versão do Python
+          python-version: '3.11'
+
+      # Terceiro passo: instalar dependências necessárias
+      - name: Instalar dependências
+
+        # Comandos executados no terminal Linux da pipeline
+        run: |
+
+          # Instala pytest (testes)
+          # Instala pytest-cov (cobertura de testes)
+          pip install pytest pytest-cov
+
+      # Quarto passo: executar os testes automatizados
+      - name: Rodar testes
+
+        # Variáveis de ambiente utilizadas no job
+        env:
+
+          # Faz o Python reconhecer a raiz do projeto
+          PYTHONPATH: .
+
+        # Comandos executados
+        run: |
+
+          # Executa os testes da pasta tests_alta
+          # Mede cobertura da pasta src_alta
+          # Exibe relatório no terminal
+          # Gera arquivo coverage.json
+          pytest tests_alta --cov=src_alta --cov-report=term --cov-report=json
+
+      # Quinto passo: aplicar o Quality Gate
+      - name: Quality Gate
+
+        # Executa comandos shell
+        run: |
+
+          # Lê o arquivo coverage.json
+          # Extrai a porcentagem total de cobertura
+          COVERAGE=$(python -c "import json; print(json.load(open('coverage.json'))['totals']['percent_covered'])")
+
+          # Exibe a cobertura encontrada
+          echo "Cobertura: $COVERAGE%"
+
+          # Verifica se a cobertura é menor que 80%
+          if (( $(echo "$COVERAGE < 80" | bc -l) )); then
+
+            # Exibe mensagem de falha
+            echo "❌ Falhou"
+
+            # Interrompe a pipeline com erro
+            exit 1
+
+          else
+
+            # Exibe mensagem de sucesso
+            echo "✅ Aprovado"
+
+          fi

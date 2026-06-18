@@ -1,0 +1,86 @@
+# Nome do workflow exibido no GitHub Actions
+name: Cobertura Baixa
+
+# Evento que dispara o workflow
+on:
+
+  # Permite execução manual
+  workflow_dispatch:
+
+# Lista de jobs do workflow
+jobs:
+
+  # Nome interno do job
+  cobertura-baixa:
+
+    # Sistema operacional da máquina virtual
+    runs-on: ubuntu-latest
+
+    # Etapas executadas
+    steps:
+
+      # Faz download do código do repositório
+      - name: Clonar repositório
+
+        # Action oficial do GitHub
+        uses: actions/checkout@v4
+
+      # Configuração do ambiente Python
+      - name: Configurar Python
+
+        # Action oficial para configurar Python
+        uses: actions/setup-python@v5
+
+        with:
+
+          # Versão do Python utilizada
+          python-version: '3.11'
+
+      # Instalação das bibliotecas necessárias
+      - name: Instalar dependências
+
+        run: |
+
+          # Framework de testes
+          pip install pytest pytest-cov
+
+      # Execução dos testes com baixa cobertura
+      - name: Rodar testes
+
+        env:
+
+          # Define caminho raiz do projeto
+          PYTHONPATH: .
+
+        run: |
+
+          # Executa testes da pasta tests_baixa
+          # Mede cobertura da pasta src_baixa
+          pytest tests_baixa --cov=src_baixa --cov-report=term --cov-report=json
+
+      # Verificação do Quality Gate
+      - name: Quality Gate
+
+        run: |
+
+          # Obtém valor da cobertura do arquivo JSON
+          COVERAGE=$(python -c "import json; print(json.load(open('coverage.json'))['totals']['percent_covered'])")
+
+          # Mostra a cobertura no terminal
+          echo "Cobertura: $COVERAGE%"
+
+          # Verifica se a cobertura é menor que 80%
+          if (( $(echo "$COVERAGE < 80" | bc -l) )); then
+
+            # Mostra mensagem de falha
+            echo "❌ Falhou"
+
+            # Finaliza pipeline com erro
+            exit 1
+
+          else
+
+            # Mostra mensagem de aprovação
+            echo "✅ Aprovado"
+
+          fi

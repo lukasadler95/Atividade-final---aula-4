@@ -1,0 +1,108 @@
+# Nome do workflow
+name: IA analisando logs
+
+# Define quando pipeline pode ser executada
+on:
+
+  # Execução manual pelo botão "Run workflow"
+  workflow_dispatch:
+
+# Permissões necessárias
+permissions:
+
+  # Permite criar issues automaticamente
+  issues: write
+
+# Lista de jobs
+jobs:
+
+  # Nome interno do job
+  analisar-logs:
+
+    # Máquina virtual Linux
+    runs-on: ubuntu-latest
+
+    # Etapas do pipeline
+    steps:
+
+      # Clona repositório
+      - name: Clonar repositório
+        uses: actions/checkout@v4
+
+      # Faz login no GitHub CLI
+      - name: Login GitHub CLI
+        run: |
+
+          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+
+      # Analisa logs usando IA
+      - name: IA analisa logs
+
+        # Variáveis protegidas
+        env:
+
+          # Chave da API GroqCloud
+          GROQCLOUD_API_KEY: ${{ secrets.GROQCLOUD_API_KEY }}
+
+        run: |
+
+          echo "Lendo logs..."
+
+          # Lê arquivo de log e remove quebras de linha
+          LOG_CONTENT=$(cat logs/app.log | tr '\n' ' ')
+
+          echo "Logs carregados."
+
+          echo "Consultando IA..."
+
+          # Faz requisição para IA
+          RESPONSE=$(curl -s https://api.groq.com/openai/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $GROQCLOUD_API_KEY" \
+            -d '{
+              "model": "llama-3.1-8b-instant",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "Você é especialista em observabilidade, monitoramento e análise de logs."
+                },
+                {
+                  "role": "user",
+                  "content": "Analise estes logs e diga se existe erro crítico: '"$LOG_CONTENT"'"
+                }
+              ]
+            }')
+
+          # Mostra resposta completa da API
+          echo "Resposta da IA:"
+          echo "$RESPONSE"
+
+          # Extrai apenas resposta textual
+          DECISION=$(echo "$RESPONSE" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['choices'][0]['message']['content'] if 'choices' in r else 'Erro ao consultar IA')")
+
+          # Mostra decisão
+          echo "Decisão da IA:"
+          echo "$DECISION"
+
+          # Se IA detectar erro crítico
+          if echo "$DECISION" | grep -qi "crítico"; then
+
+            echo "::error::Erro crítico detectado nos logs"
+
+            echo "Criando issue automática..."
+
+            # Cria issue automaticamente
+            ISSUE_URL=$(gh issue create \
+              --title "Erro crítico detectado nos logs" \
+              --body "$DECISION")
+
+            # Mostra link da issue
+            echo "Issue criada:"
+            echo "$ISSUE_URL"
+
+            # Falha pipeline
+            exit 1
+
+          fi
+
+          echo "Nenhum erro crítico detectado."

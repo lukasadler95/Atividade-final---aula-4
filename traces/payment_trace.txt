@@ -1,0 +1,7 @@
+Frontend -> API Gateway -> Auth Service -> Payment Service -> Database
+
+Tempo Frontend: 20ms
+Tempo API Gateway: 35ms
+Tempo Auth Service: 40ms
+Tempo Payment Service: 4200ms
+Timeout no Database

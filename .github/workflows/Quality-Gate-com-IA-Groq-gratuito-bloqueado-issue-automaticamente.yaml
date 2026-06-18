@@ -1,0 +1,105 @@
+# Nome do workflow
+name: Quality Gate com IA + Issue Automática
+
+# Execução manual
+on:
+  workflow_dispatch:
+
+# Permissões do workflow
+permissions:
+  contents: read
+  issues: write
+
+# Jobs
+jobs:
+
+  quality-gate-ia:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # Clona repositório
+      - name: Clonar repositório
+        uses: actions/checkout@v4
+
+      # Configura Python
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Instala dependências
+      - name: Instalar dependências
+        run: |
+          pip install pytest pytest-cov
+
+      # Executa testes
+      - name: Coletar métricas
+        env:
+          PYTHONPATH: .
+        run: |
+
+          echo "Executando testes..."
+
+          pytest tests_baixa --cov=src_baixa --cov-report=json -q || true
+
+          COV=$(python -c "import json; d=json.load(open('coverage.json')); print(round(d['totals']['percent_covered']))")
+
+          echo "Cobertura atual: $COV%"
+
+          echo "COVERAGE=$COV" >> $GITHUB_ENV
+
+      # Autentica GitHub CLI
+      - name: Login GitHub CLI
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+
+      # Consulta IA
+      - name: Consultar IA
+        env:
+          GROQCLOUD_API_KEY: ${{ secrets.GROQCLOUD_API_KEY }}
+        run: |
+
+          echo "Consultando IA..."
+
+          RESPONSE=$(curl -s https://api.groq.com/openai/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $GROQCLOUD_API_KEY" \
+            -d '{
+              "model": "llama-3.1-8b-instant",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "Você é um quality gate CI/CD. Responda apenas APROVADO ou BLOQUEADO."
+                },
+                {
+                  "role": "user",
+                  "content": "Cobertura atual: '"$COVERAGE"'%. Projeto Python com possível divisão por zero não testada."
+                }
+              ]
+            }')
+
+          echo "Resposta:"
+          echo "$RESPONSE"
+
+          DECISION=$(echo "$RESPONSE" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['choices'][0]['message']['content'])")
+
+          echo "Decisão:"
+          echo "$DECISION"
+
+          if echo "$DECISION" | grep -q "BLOQUEADO"; then
+
+            echo "Criando issue automática..."
+
+            gh issue create \
+              --title "Quality Gate bloqueado pela IA" \
+              --body "Cobertura atual: $COVERAGE%. Pipeline bloqueado automaticamente pela IA."
+
+            echo "::error::Pipeline bloqueado"
+
+            exit 1
+
+          fi
+
+          echo "Pipeline aprovado."
