@@ -1,0 +1,76 @@
+name: Pipeline DevOps + IA
+
+on:
+  push:
+    branches:
+      - main
+      - feature/**
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      issues: write
+
+    env:
+      PYTHONPATH: .
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY || secrets.GROQCLOUD_API_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias
+        run: |
+          pip install pytest pytest-cov groq
+
+      # === ETAPA 1: QUALITY GATE ===
+      - name: Testes + Quality Gate
+        run: |
+          pytest tests_alta/ \
+            --cov=src_alta \
+            --cov-report=json:coverage.json \
+            --cov-fail-under=80 \
+            -v
+
+      - name: Validar secret Groq
+        run: |
+          if [ -z "$GROQ_API_KEY" ]; then
+            echo "::error::Configure a secret GROQ_API_KEY ou GROQCLOUD_API_KEY em Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      # === ETAPA 2: DEPLOY GATE COM IA ===
+      - name: Deploy Gate (Groq)
+        id: deploy-gate
+        run: python deploy/deploy_gate.py
+
+      - name: Login GitHub CLI
+        if: steps.deploy-gate.outcome == 'success'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+
+      # === ETAPA 3: CANARY DEPLOY ===
+      - name: Canary Deploy Simulator
+        id: canary
+        if: steps.deploy-gate.outcome == 'success'
+        continue-on-error: true
+        run: python deploy/canary_simulator.py
+
+      # === ETAPA 4: ROLLBACK AUTOMATICO ===
+      - name: Rollback + Relatorio IA
+        if: steps.canary.outcome == 'failure'
+        run: python deploy/rollback_trigger.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
